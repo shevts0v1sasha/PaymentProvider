@@ -1,4 +1,4 @@
-package proselyte.payment.provider.entity.bankAccount;
+package proselyte.payment.provider.entity;
 
 public enum CurrencyType {
     USD,

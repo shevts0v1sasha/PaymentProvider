@@ -5,7 +5,7 @@ public class ApiException extends RuntimeException {
     protected String errorCode;
 
     public ApiException(String errorCode) {
-        super();
+        super(errorCode);
         this.errorCode = errorCode;
     }
 

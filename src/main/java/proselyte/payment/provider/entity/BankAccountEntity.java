@@ -1,6 +1,7 @@
-package proselyte.payment.provider.entity.merchant;
+package proselyte.payment.provider.entity;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
@@ -10,15 +11,19 @@ import org.springframework.data.relational.core.mapping.Table;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-@Table("merchants_bank_accounts")
-public class MerchantBankAccountEntity {
+@Builder(toBuilder = true)
+@Table("bank_accounts")
+public class BankAccountEntity {
 
     @Id
     private Long id;
 
-    @Column("merchant_id")
-    private Long merchantId;
+    @Column("currency")
+    private CurrencyType currency;
 
-    @Column("bank_account_id")
-    private Long bankAccountId;
+    @Column("balance")
+    private double balance;
+
+    @Column("owner_uid")
+    private String ownerUid;
 }

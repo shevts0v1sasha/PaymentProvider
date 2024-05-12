@@ -1,4 +1,4 @@
-package proselyte.payment.provider.entity.transaction;
+package proselyte.payment.provider.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,9 +10,7 @@ import org.springframework.data.domain.Persistable;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 import org.springframework.util.StringUtils;
-import proselyte.payment.provider.entity.bankAccount.BankAccountEntity;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data

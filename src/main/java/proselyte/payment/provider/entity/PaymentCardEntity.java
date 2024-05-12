@@ -1,4 +1,4 @@
-package proselyte.payment.provider.entity.paymentCard;
+package proselyte.payment.provider.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -7,8 +7,6 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Transient;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-import proselyte.payment.provider.entity.bankAccount.BankAccountEntity;
-import proselyte.payment.provider.entity.customer.CustomerEntity;
 
 import java.time.LocalDateTime;
 
@@ -19,10 +17,7 @@ import java.time.LocalDateTime;
 public class PaymentCardEntity {
 
     @Id
-    private Long id;
-
-    @Column("bank_account_id")
-    private Long bankAccountId;
+    private String id;
 
     @Transient
     private BankAccountEntity bankAccount;
