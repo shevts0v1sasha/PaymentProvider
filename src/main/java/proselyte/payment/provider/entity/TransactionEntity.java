@@ -44,6 +44,9 @@ public class TransactionEntity implements Persistable<String> {
     @Column("amount")
     private double amount;
 
+    @Column("notification_url")
+    private String notificationUrl;
+
     @Column("created_at")
     private LocalDateTime createdAt;
 

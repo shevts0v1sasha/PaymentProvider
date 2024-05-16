@@ -6,8 +6,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import proselyte.payment.provider.rest.request.CreateTransactionRequest;
-import proselyte.payment.provider.rest.request.CreateTransactionResponse;
+import proselyte.payment.provider.dto.CreateTransactionRequest;
+import proselyte.payment.provider.dto.CreateTransactionResponse;
 import proselyte.payment.provider.service.TransactionService;
 import reactor.core.publisher.Mono;
 

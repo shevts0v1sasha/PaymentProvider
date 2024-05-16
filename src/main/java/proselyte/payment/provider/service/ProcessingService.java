@@ -4,15 +4,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import proselyte.payment.provider.entity.BankAccountEntity;
 import proselyte.payment.provider.entity.TransactionEntity;
 import proselyte.payment.provider.entity.TransactionStatus;
-import proselyte.payment.provider.entity.WebhookEntity;
+import proselyte.payment.provider.exception.ApiException;
 import proselyte.payment.provider.repository.BankAccountRepository;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
@@ -20,54 +20,68 @@ import java.util.concurrent.ThreadLocalRandom;
 @Slf4j
 public class ProcessingService {
 
-    private final static long THIRTY_SECONDS_IN_MILLIS = 30_000;
+    private final static long TEN_SECONDS_IN_MILLIS = 10_000;
 
     private final TransactionService transactionService;
     private final WebhookService webhookService;
     private final BankAccountRepository bankAccountRepository;
 
-    @Scheduled(initialDelay = THIRTY_SECONDS_IN_MILLIS, fixedRate = THIRTY_SECONDS_IN_MILLIS)
-    private void runProcessing() {
-        log.info("Start transaction processing method");
-        List<TransactionEntity> transactions = transactionService.getAllInProgressTransactions()
-                .collectList()
-                .block();
+    @Scheduled(initialDelay = TEN_SECONDS_IN_MILLIS, fixedRate = TEN_SECONDS_IN_MILLIS)
+    public void runProcessing() {
+        processTransactions().subscribe();
+    }
 
-        if (transactions != null) {
-            for (TransactionEntity transaction : transactions) {
-                double random = ThreadLocalRandom.current().nextDouble();
-                TransactionStatus newStatus = random < 0.9 ? TransactionStatus.SUCCESS : TransactionStatus.FAILED;
-                log.info("Transaction with id: {} now has new status: {}", transaction.getId(), newStatus);
-                transaction.setTransactionStatus(newStatus);
+    @Transactional
+    public Flux<TransactionEntity> processTransactions() {
+        return transactionService.getAllInProgressTransactions()
+                .flatMap(transaction -> {
+                    TransactionStatus newStatus = randomNewTransactionStatus();
+                    log.info("Transaction with id: {} now has new status: {}", transaction.getId(), newStatus);
+                    transaction.setTransactionStatus(newStatus);
 
-                String message = newStatus == TransactionStatus.SUCCESS ?
-                        "OK" :
-                        "FAILED";
+                    String message = newStatus == TransactionStatus.SUCCESS ?
+                            "OK" :
+                            "FAILED";
 
-                WebhookEntity webhookByTransactionUid = webhookService.findWebhookByTransactionUid(transaction.getId()).block();
-                if (webhookByTransactionUid != null) {
-                    webhookService.invokeWebhook(webhookByTransactionUid, message, newStatus).subscribe();
-                } else {
-                    log.error("Couldn't find webhook for transaction with id: {}", transaction.getId());
-                }
+                    return Mono.zip(
+                                    bankAccountRepository.findById(transaction.getFromBankAccountId()),
+                                    bankAccountRepository.findById(transaction.getToBankAccountId())
+                            )
+                            .flatMap(tuple -> {
+                                BankAccountEntity fromBankAccount = tuple.getT1();
+                                BankAccountEntity toBankAccount = tuple.getT2();
 
-                BankAccountEntity fromBankAccount = bankAccountRepository.findById(transaction.getFromBankAccountId()).block();
-                BankAccountEntity toBankAccount = bankAccountRepository.findById(transaction.getToBankAccountId()).block();
-                switch (newStatus) {
-                    case SUCCESS -> {
-                        double balance = toBankAccount.getBalance();
-                        toBankAccount.setBalance(balance + transaction.getAmount());
-                        bankAccountRepository.save(toBankAccount).subscribe();
-                    }
-                    case FAILED -> {
-                        double balance = fromBankAccount.getBalance();
-                        fromBankAccount.setBalance(balance + transaction.getAmount());
-                        bankAccountRepository.save(fromBankAccount).subscribe();
-                    }
-                }
+                                Mono<BankAccountEntity> savedBankAccount;
 
-                transactionService.saveOrUpdateTransaction(transaction).subscribe();
-            }
-        }
+                                switch (newStatus) {
+                                    case SUCCESS -> {
+                                        double balance = toBankAccount.getBalance();
+                                        toBankAccount.setBalance(balance + transaction.getAmount());
+                                        savedBankAccount = bankAccountRepository.save(toBankAccount);
+                                    }
+                                    case FAILED -> {
+                                        double balance = fromBankAccount.getBalance();
+                                        fromBankAccount.setBalance(balance + transaction.getAmount());
+                                        savedBankAccount = bankAccountRepository.save(fromBankAccount);
+                                    }
+                                    default -> {
+                                        return Mono.error(new RuntimeException("UNKNOWN_TRANSACTION_STATUS"));
+                                    }
+                                }
+
+                                return savedBankAccount
+                                        .flatMap(bankAccountEntity -> transactionService.saveOrUpdateTransaction(transaction))
+                                        .doOnSuccess(t -> webhookService.registerWebhookInvocation(t, message, t.getTransactionStatus()));
+                            });
+                });
+    }
+
+    /**
+     * 0.9 probability - TransactionStatus.SUCCESS
+     * 0.1 probability - TransactionStatus.FAILED
+     */
+    private TransactionStatus randomNewTransactionStatus() {
+        double random = ThreadLocalRandom.current().nextDouble();
+        return random < 0.9 ? TransactionStatus.SUCCESS : TransactionStatus.FAILED;
     }
 }

@@ -3,11 +3,14 @@ package proselyte.payment.provider.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import proselyte.payment.provider.dto.PaymentCardDataDto;
 import proselyte.payment.provider.entity.*;
 import proselyte.payment.provider.exception.ApiException;
+import proselyte.payment.provider.exception.CurrenciesDoesNotMatchException;
+import proselyte.payment.provider.exception.NotEnoughMoneyException;
 import proselyte.payment.provider.repository.*;
-import proselyte.payment.provider.rest.request.CreateTransactionRequest;
+import proselyte.payment.provider.dto.CreateTransactionRequest;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -20,12 +23,12 @@ public class TransactionService {
 
     private final TransactionRepository transactionRepository;
     private final BankAccountRepository bankAccountRepository;
-    private final CustomerRepository customerRepository;
     private final MerchantRepository merchantRepository;
     private final PaymentCardRepository paymentCardRepository;
-    private final WebhookService webhookService;
 
+    @Transactional
     public Mono<TransactionEntity> createTopUpTransaction(CreateTransactionRequest request) {
+        log.info("Create top up transaction request: {}", request);
         PaymentCardDataDto paymentCardDataDto = request.cardData();
 
         Mono<BankAccountEntity> fromBankAccountMono = findBankAccountByPaymentCard(paymentCardDataDto.cardNumber());
@@ -34,6 +37,7 @@ public class TransactionService {
         return createTransaction(request, fromBankAccountMono, toBankAccountMono);
     }
 
+    @Transactional
     public Mono<TransactionEntity> createPayoutTransaction(CreateTransactionRequest request) {
         PaymentCardDataDto paymentCardDataDto = request.cardData();
 
@@ -42,19 +46,19 @@ public class TransactionService {
         return createTransaction(request, fromBankAccountMono, toBankAccountMono);
     }
 
-    private Mono<BankAccountEntity> findBankAccountByMerchantIdAndCurrency(String merchantId, CurrencyType currencyType) {
+    public Mono<BankAccountEntity> findBankAccountByMerchantIdAndCurrency(String merchantId, CurrencyType currencyType) {
         return merchantRepository.findById(merchantId)
                 .flatMapMany(merchantEntity -> bankAccountRepository.findAllByOwnerUid(merchantEntity.getId()))
                 .filter(bankAccountEntity -> bankAccountEntity.getCurrency() == currencyType)
                 .next()
-                .switchIfEmpty(Mono.error(new ApiException("BANK_ACCOUNT_BY_MERCHANT_NOT_FOUND")));
+                .switchIfEmpty(Mono.error(new ApiException("BANK_ACCOUNT_BY_MERCHANT_NOT_FOUND", "Bank account by merchant with id=%s not found".formatted(merchantId))));
     }
 
-    private Mono<BankAccountEntity> findBankAccountByPaymentCard(String cardNumber) {
+    public Mono<BankAccountEntity> findBankAccountByPaymentCard(String cardNumber) {
         return paymentCardRepository.findByCardNumber(cardNumber)
                 .flatMapMany(paymentCardEntity -> bankAccountRepository.findAllByOwnerUid(paymentCardEntity.getId()))
                 .next()
-                .switchIfEmpty(Mono.error(new ApiException("BANK_ACCOUNT_BY_CARD_NOT_FOUND")));
+                .switchIfEmpty(Mono.error(new ApiException("BANK_ACCOUNT_BY_CARD_NOT_FOUND", "Bank account by card number with id=%s not found".formatted(cardNumber))));
     }
 
     public Flux<TransactionEntity> getAllInProgressTransactions() {
@@ -66,19 +70,19 @@ public class TransactionService {
         return transactionRepository.save(transaction);
     }
 
-    private Mono<TransactionEntity> createTransaction(CreateTransactionRequest request,
+    public Mono<TransactionEntity> createTransaction(CreateTransactionRequest request,
                                                       Mono<BankAccountEntity> fromBankAccountMono,
                                                       Mono<BankAccountEntity> toBankAccountMono) {
         CurrencyType currency = request.currency();
         double amount = request.amount();
         return Mono.zip(fromBankAccountMono, toBankAccountMono)
                 .flatMap(tuples -> {
-                     BankAccountEntity fromBankAccount = tuples.getT1();
-                     BankAccountEntity toBankAccount = tuples.getT2();
+                    BankAccountEntity fromBankAccount = tuples.getT1();
+                    BankAccountEntity toBankAccount = tuples.getT2();
 
-                     if (fromBankAccount.getCurrency() != currency || toBankAccount.getCurrency() != currency) {
-                         return Mono.error(new ApiException("SOME_OF_CURRENCY_DOES_NOT_MATCH"));
-                     }
+                    if (fromBankAccount.getCurrency() != currency || toBankAccount.getCurrency() != currency) {
+                        return Mono.error(new CurrenciesDoesNotMatchException("Currencies: %s, %s".formatted(fromBankAccount.getCurrency().name(), toBankAccount.getCurrency().name())));
+                    }
 
                     double merchantsBalance = fromBankAccount.getBalance();
                     if (merchantsBalance >= amount) {
@@ -88,6 +92,7 @@ public class TransactionService {
                                 .fromBankAccountId(fromBankAccount.getId())
                                 .toBankAccountId(toBankAccount.getId())
                                 .amount(amount)
+                                .notificationUrl(request.notificationUrl())
                                 .createdAt(LocalDateTime.now())
                                 .updatedAt(LocalDateTime.now())
                                 .language(request.language())
@@ -95,13 +100,10 @@ public class TransactionService {
                         fromBankAccount.setBalance(merchantsBalance - amount);
 
                         return bankAccountRepository.save(fromBankAccount)
-                                .flatMap(bankAccountEntity -> transactionRepository.save(transaction))
-                                .doOnSuccess(savedTransaction -> webhookService.saveWebhook(savedTransaction, request.notificationUrl()).subscribe());
-
+                                .flatMap(bankAccountEntity -> transactionRepository.save(transaction));
                     } else {
-                        return Mono.error(new ApiException("NOT_ENOUGH_MONEY"));
+                        return Mono.error(new NotEnoughMoneyException("Not enough money :("));
                     }
-
                 });
     }
 
