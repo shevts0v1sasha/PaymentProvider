@@ -4,17 +4,23 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import proselyte.payment.provider.dto.CreateTransactionRequest;
 import proselyte.payment.provider.dto.PaymentCardDataDto;
 import proselyte.payment.provider.entity.*;
 import proselyte.payment.provider.exception.ApiException;
 import proselyte.payment.provider.exception.CurrenciesDoesNotMatchException;
 import proselyte.payment.provider.exception.NotEnoughMoneyException;
-import proselyte.payment.provider.repository.*;
-import proselyte.payment.provider.dto.CreateTransactionRequest;
+import proselyte.payment.provider.exception.NotFoundException;
+import proselyte.payment.provider.repository.BankAccountRepository;
+import proselyte.payment.provider.repository.MerchantRepository;
+import proselyte.payment.provider.repository.PaymentCardRepository;
+import proselyte.payment.provider.repository.TransactionRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Date;
 
 @Slf4j
 @Service
@@ -71,8 +77,8 @@ public class TransactionService {
     }
 
     public Mono<TransactionEntity> createTransaction(CreateTransactionRequest request,
-                                                      Mono<BankAccountEntity> fromBankAccountMono,
-                                                      Mono<BankAccountEntity> toBankAccountMono) {
+                                                     Mono<BankAccountEntity> fromBankAccountMono,
+                                                     Mono<BankAccountEntity> toBankAccountMono) {
         CurrencyType currency = request.currency();
         double amount = request.amount();
         return Mono.zip(fromBankAccountMono, toBankAccountMono)
@@ -104,6 +110,54 @@ public class TransactionService {
                     } else {
                         return Mono.error(new NotEnoughMoneyException("Not enough money :("));
                     }
+                });
+    }
+
+    public Mono<TransactionEntity> getTransactionById(String id) {
+        return transactionRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Couldn't find transaction with id=%s".formatted(id))))
+                .flatMap(this::fetchTransactionDetails);
+    }
+
+
+
+    public Flux<TransactionEntity> getTransactionList() {
+        return transactionRepository.findAll()
+                .flatMap(this::fetchTransactionDetails);
+    }
+
+    public Flux<TransactionEntity> getTransactionListByDates(Long startDateUnixMillis, Long endDateUnixMillis) {
+        return getTransactionList()
+                .filter(transaction -> {
+                    LocalDateTime createdAt = transaction.getCreatedAt();
+                    if (startDateUnixMillis != null) {
+                        LocalDateTime startDate = LocalDateTime.ofInstant(new Date(startDateUnixMillis).toInstant(), ZoneId.systemDefault());
+                        if (createdAt.isBefore(startDate)) {
+                            return false;
+                        }
+                    }
+                    if (endDateUnixMillis != null) {
+                        LocalDateTime endDate = LocalDateTime.ofInstant(new Date(endDateUnixMillis).toInstant(), ZoneId.systemDefault());
+                        return !createdAt.isAfter(endDate);
+                    }
+
+                    return true;
+                });
+    }
+
+    private Mono<TransactionEntity> fetchTransactionDetails(TransactionEntity transaction) {
+        return Mono.zip(
+                        bankAccountRepository.findById(transaction.getToBankAccountId()),
+                        bankAccountRepository.findById(transaction.getFromBankAccountId())
+                )
+                .flatMap(zip -> {
+                    BankAccountEntity toBankAccount = zip.getT1();
+                    BankAccountEntity fromBankAccount = zip.getT2();
+
+                    transaction.setToBankAccount(toBankAccount);
+                    transaction.setFromBankAccount(fromBankAccount);
+
+                    return Mono.just(transaction);
                 });
     }
 

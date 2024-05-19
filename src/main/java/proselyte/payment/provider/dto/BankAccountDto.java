@@ -5,6 +5,6 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import proselyte.payment.provider.entity.CurrencyType;
 
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-public record BankAccountDto(String id,
+public record BankAccountDto(Long id,
                              CurrencyType currency) {
 }

@@ -11,6 +11,7 @@ import proselyte.payment.provider.PaymentProvider.utils.DataUtils;
 import proselyte.payment.provider.dto.CreateTransactionRequest;
 import proselyte.payment.provider.entity.*;
 import proselyte.payment.provider.exception.ApiException;
+import proselyte.payment.provider.exception.NotFoundException;
 import proselyte.payment.provider.repository.BankAccountRepository;
 import proselyte.payment.provider.repository.MerchantRepository;
 import proselyte.payment.provider.repository.PaymentCardRepository;
@@ -20,6 +21,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -83,7 +85,7 @@ public class TransactionServiceTests {
                         .language(request.language())
                         .build()));
         //  when
-        TransactionEntity transaction = serviceUnderTest.createTopUpTransaction(request).toFuture().get();
+        TransactionEntity transaction = serviceUnderTest.createTopUpTransaction(request).block();
         //  then
 
         assertThat(transaction).isNotNull();
@@ -93,7 +95,7 @@ public class TransactionServiceTests {
 
     @Test
     @DisplayName("Test try create top up transaction with amount ore then customer bank account balance")
-    public void givenCreateTopUpTransactionRequestWithAmountMoreThenCustomerBankAccountBalance_whenCreateTopUpTransaction_thenExceptionOccurred() throws ExecutionException, InterruptedException {
+    public void givenCreateTopUpTransactionRequestWithAmountMoreThenCustomerBankAccountBalance_whenCreateTopUpTransaction_thenExceptionOccurred() {
         //  given
         CreateTransactionRequest request = DataUtils.createTransactionRequest(5500);
 
@@ -117,6 +119,34 @@ public class TransactionServiceTests {
         //  then
 
         verify(transactionRepository, never()).save(any(TransactionEntity.class));
+    }
+
+    @Test
+    @DisplayName("Test get transaction by id functionality")
+    public void givenTransactionId_whenGetTransactionById_thenTransactionReturned() {
+        //given
+        String transactionId = UUID.randomUUID().toString();
+        BDDMockito.given(transactionRepository.findById(anyString()))
+                .willReturn(Mono.just(TransactionEntity.builder()
+                        .id(transactionId)
+                        .build()));
+        //when
+        TransactionEntity transactionById = serviceUnderTest.getTransactionById(transactionId).block();
+        //then
+        assertThat(transactionById).isNotNull();
+        assertThat(transactionById.getId()).isEqualTo(transactionId);
+    }
+
+    @Test
+    @DisplayName("Test get transaction by wrong id functionality")
+    public void givenWrongTransactionId_whenGetTransactionById_thenNotFoundExceptionThrown() {
+        //given
+        String transactionId = UUID.randomUUID().toString();
+        BDDMockito.given(transactionRepository.findById(anyString()))
+                .willReturn(Mono.empty());
+        //when
+        assertThrows(NotFoundException.class, () -> serviceUnderTest.getTransactionById(transactionId).block());
+        //then
 
     }
 }

@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import proselyte.payment.provider.entity.BankAccountEntity;
 import proselyte.payment.provider.entity.TransactionEntity;
 import proselyte.payment.provider.entity.TransactionStatus;
-import proselyte.payment.provider.exception.ApiException;
+import proselyte.payment.provider.exception.NotFoundException;
 import proselyte.payment.provider.repository.BankAccountRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -39,10 +39,6 @@ public class ProcessingService {
                     log.info("Transaction with id: {} now has new status: {}", transaction.getId(), newStatus);
                     transaction.setTransactionStatus(newStatus);
 
-                    String message = newStatus == TransactionStatus.SUCCESS ?
-                            "OK" :
-                            "FAILED";
-
                     return Mono.zip(
                                     bankAccountRepository.findById(transaction.getFromBankAccountId()),
                                     bankAccountRepository.findById(transaction.getToBankAccountId())
@@ -70,9 +66,9 @@ public class ProcessingService {
                                 }
 
                                 return savedBankAccount
-                                        .flatMap(bankAccountEntity -> transactionService.saveOrUpdateTransaction(transaction))
-                                        .doOnSuccess(t -> webhookService.registerWebhookInvocation(t, message, t.getTransactionStatus()));
-                            });
+                                        .flatMap(bankAccountEntity -> transactionService.saveOrUpdateTransaction(transaction));
+                            })
+                            .switchIfEmpty(Mono.error(new NotFoundException("Some of bank account not found")));
                 });
     }
 

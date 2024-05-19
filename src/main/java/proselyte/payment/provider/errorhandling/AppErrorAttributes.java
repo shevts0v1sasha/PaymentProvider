@@ -6,9 +6,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import proselyte.payment.provider.exception.ApiException;
-import proselyte.payment.provider.exception.NotEnoughMoneyException;
+import proselyte.payment.provider.exception.NotFoundException;
 
-import java.security.SignatureException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -29,10 +28,15 @@ public class AppErrorAttributes extends DefaultErrorAttributes {
         var error = getError(request);
 
         var errorList = new ArrayList<Map<String, Object>>();
+        var errorMap = new LinkedHashMap<String, Object>();
 
-        if (error instanceof ApiException) {
+        if (error instanceof NotFoundException) {
+            status = HttpStatus.NOT_FOUND;
+            errorMap.put("code", ((ApiException) error).getErrorCode());
+            errorMap.put("message", error.getMessage());
+            errorList.add(errorMap);
+        } else if (error instanceof ApiException) {
             status = HttpStatus.BAD_REQUEST;
-            var errorMap = new LinkedHashMap<String, Object>();
             errorMap.put("code", ((ApiException) error).getErrorCode());
             errorMap.put("message", error.getMessage());
             errorList.add(errorMap);
@@ -42,7 +46,6 @@ public class AppErrorAttributes extends DefaultErrorAttributes {
             if (message == null)
                 message = error.getClass().getName();
 
-            var errorMap = new LinkedHashMap<String, Object>();
             errorMap.put("code", "INTERNAL_ERROR");
             errorMap.put("message", message);
             errorList.add(errorMap);

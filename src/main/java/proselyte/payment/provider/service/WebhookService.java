@@ -3,7 +3,9 @@ package proselyte.payment.provider.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 import proselyte.payment.provider.dto.WebhookClientResponse;
 import proselyte.payment.provider.dto.WebhookDto;
@@ -20,6 +22,7 @@ import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -28,13 +31,32 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class WebhookService {
 
     private final WebhookRepository webhookRepository;
+    private final TransactionService transactionService;
     private final WebhookMapper webhookMapper;
 
-    public void registerWebhookInvocation(TransactionEntity transaction, String message, TransactionStatus transactionStatus) {
-        log.info("registerWebhookInvocation");
-        invokeWebhook(transaction, message, transactionStatus)
-                .subscribe();
+    @Scheduled(initialDelay = 30_000, fixedRate = 10_000)
+    public void findTransactionsWithoutInvokedWebhook() {
+        Mono.zip(webhookRepository.findAll().collectList(),
+                        transactionService.getTransactionList().collectList())
+                .doOnNext(zip -> {
+                    List<String> transactionIdsWithWebhooks = zip.getT1()
+                            .stream()
+                            .map(WebhookEntity::getTransactionUid)
+                            .distinct()
+                            .toList();
 
+                    List<TransactionEntity> transactions = zip.getT2();
+
+                    transactions.stream()
+                            .filter(transaction -> !transactionIdsWithWebhooks.contains(transaction.getId()))
+                            .toList()
+                            .forEach(transaction -> invokeWebhook(transaction,
+                                    transaction.getTransactionStatus() == TransactionStatus.SUCCESS ?
+                                            "OK" :
+                                            "FAILED",
+                                    transaction.getTransactionStatus())
+                                    .subscribe());
+                }).subscribe();
     }
 
     public Mono<WebhookEntity> invokeWebhook(TransactionEntity transaction, String message, TransactionStatus transactionStatus) {
