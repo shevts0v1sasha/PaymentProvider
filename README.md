@@ -3,7 +3,7 @@
 PaymentProvider - study microservice, that implements fake payment provider. 
 This service provides us with the ability to create transactions (top up, withdrawal), send webhooks and check the merchant balance.
 
-## Create top up transaction Create top up transaction sequence diagram.png
+## Create top up transaction
 ![alt text](https://github.com/shevts0v1sasha/PaymentProvider/blob/main/doc/diagrams/Create%20top%20up%20transaction%20sequence%20diagram.png?raw=true)
 
 ## Create withdrawal transaction
