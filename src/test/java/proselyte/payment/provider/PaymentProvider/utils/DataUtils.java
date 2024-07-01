@@ -17,8 +17,6 @@ public final class DataUtils {
     private DataUtils() {
     }
 
-    private static Long BANK_ACCOUNT_ID = 1L;
-
     public static PaymentCardEntity getPaymentCardTransient(Long customerId) {
         return PaymentCardEntity.builder()
                 .cardNumber("4102778822334893")
@@ -63,12 +61,6 @@ public final class DataUtils {
     public static MerchantEntity getMerchantPersisted() {
         return getMerchantTransient().toBuilder()
                 .id("MERCHANT_ID")
-                .build();
-    }
-
-    public static BankAccountEntity getBankAccountPersisted() {
-        return BankAccountEntity.builder()
-
                 .build();
     }
 
